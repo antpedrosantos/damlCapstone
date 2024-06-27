@@ -1,0 +1,91 @@
+module Main where
+
+import DA.Text as T
+
+type StudentRequestId = ContractId StudentRequest
+type StudentAccountId = ContractId StudentAccount
+
+
+data StudentInfo = StudentInfo with
+    studentR: Party
+    name: Text
+    email: Text
+    studentId: Text
+    requestDate: Date
+    age: Int
+        deriving (Show, Eq, Ord)
+
+
+template StudentRequest
+    with
+        student: Party
+        studentInfo: StudentInfo
+        librarian: Party
+        note: Text
+        
+    where
+        signatory student
+        observer librarian
+        
+        key (student, studentInfo) : (Party, StudentInfo)
+        maintainer key._1
+
+        ensure ((studentInfo.age >= 18) && ((T.length studentInfo.studentId) == 9)) -- student age has to be 18 or over, and student Id has to have 9 digits
+        
+            
+        -- simply returns the ContractId of the current contract without archiving anything; can be used as a reminder if the request doesn't get either Approved or Rejected for a while
+        nonconsuming choice Propose: StudentRequestId
+            controller student
+            do
+                return self
+
+        -- librarian can Reject the student's request with feedback
+        choice Reject: StudentRequestId
+            with
+                feedback: Text
+            controller librarian
+            do
+                create this with
+                    note = feedback
+
+                -- upon getting rejected, the original student can Revise the StudentInfo to re-propose
+        nonconsuming choice Revise: StudentRequestId
+            with
+                newStudentInfo: StudentInfo
+                comment: Text
+            controller student
+            do
+                assertMsg ("Student personal details need to be revised")(this.studentInfo /= newStudentInfo)
+                archive self
+                create this with
+                    studentInfo = newStudentInfo
+                    note = comment
+
+        -- student can cancel the request
+        choice Cancel: ()
+            controller student
+            do
+                return ()
+
+        -- librarian can approve the StudentRequest & create a StudentAccount contract
+        choice Approve: StudentAccountId
+            with                
+                librarianNote: Optional(Text)  
+            controller librarian
+            do
+                create StudentAccount with
+                    studentInfo
+                    librarian
+                    librarianNote
+
+
+template StudentAccount
+    with
+        studentInfo: StudentInfo
+        librarian: Party
+        librarianNote: Optional(Text)
+    where
+        signatory librarian, studentInfo.studentR 
+
+        key (studentInfo.studentR, studentInfo):(Party, StudentInfo)
+        maintainer key._1

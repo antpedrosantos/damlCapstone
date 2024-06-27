@@ -1,0 +1,103 @@
+module Setup where
+
+import Main
+import DA.Date
+import Daml.Script
+
+data TestParties = TestParties with
+    librarian: Party
+    student: Party
+
+setupTestParties = script do
+    -- 1. Allocate parties with the given display name
+    librarian <- allocatePartyWithHint "Librarian" (PartyIdHint "LBR")
+    student <- allocatePartyWithHint "Student" (PartyIdHint "STD")
+
+    return TestParties with
+        librarian
+        student
+
+setupUsers = script do
+    (testParties@TestParties{..}, testStudentInfos@TestStudentInfos{..}) <- setupStudentInfos
+
+    -- 2. Construct user-ids from text
+    libId <- validateUserId "Stu"   
+    janeId <- validateUserId "Jane"
+    louisId <- validateUserId "Louis"
+
+    -- 3. Create users with the given rights 
+    createUser (User libId (Some librarian)) [CanActAs librarian]  
+    createUser (User janeId (Some student)) [CanActAs student]
+    createUser (User louisId (Some student)) [CanActAs student]
+
+    submit student do
+        createCmd StudentRequest with
+            student
+            studentInfo = studentInfo3
+            librarian
+            note = "John Lake's Request"   
+
+
+data TestStudentInfos = TestStudentInfos with
+    studentInfo1: StudentInfo
+    studentInfo2: StudentInfo
+    studentInfo3: StudentInfo
+
+setupStudentInfos = script do
+    testParties@TestParties{..} <- setupTestParties
+
+    let
+        studentInfo1 = StudentInfo with
+            studentR = student
+            name = "Jane Smith"
+            email = "janesmith@univ.org"
+            studentId = "STD123456"
+            requestDate = date 2024 Jun 26
+            age = 23
+
+        studentInfo2 = StudentInfo with
+            studentR = student
+            name = "Louis Weiss"
+            email = "louisweiss2univ.org"
+            studentId = "STD121245"
+            requestDate = date 2024 Jun 29
+            age = 18
+
+        studentInfo3 = StudentInfo with
+            studentR = student
+            name = "John Lake"
+            email = "johnlake@univ.org"
+            studentId = "STD654323"
+            requestDate = date 2024 Apr 26
+            age = 24
+
+    return (testParties, TestStudentInfos with {studentInfo1, studentInfo2, studentInfo3})
+
+
+setupAccounts = script do
+    (testParties@TestParties{..}, testStudentInfos@TestStudentInfos{..}) <- setupStudentInfos
+    
+    request1 <- submit student do
+        createCmd StudentRequest with
+            student
+            studentInfo = studentInfo1
+            librarian
+            note = "First request"
+
+    request2 <- submit student do
+        createCmd StudentRequest with
+            student
+            studentInfo = studentInfo2
+            librarian
+            note = "Second request"
+
+    request1Approved <- submit librarian do
+        exerciseCmd request1 Approve with
+            librarianNote = Some "Request 1 approved"
+
+    request2Approved <- submit librarian do
+        exerciseCmd request2 Approve with
+            librarianNote = None
+
+
+    return (testParties, testStudentInfos)

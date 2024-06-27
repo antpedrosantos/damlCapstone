@@ -1,0 +1,144 @@
+module Test where
+
+import Daml.Script
+import DA.Date
+import Main
+import Setup
+
+
+{-
+    Full Scenario & 3 Happy Paths
+        + cancelRequest: student can "Cancel" request
+            1. student creates a StudentRequest
+            2. Student cancels the request  
+        + rejectRequest: student can create StudentRequest & librarian can exercise either "Reject" or "Approve"
+            1. student creates a StudentRequest
+            3. librarian rejects the request with feedback
+            4. student revises the request with new information
+        + proposeAndCreateAccount: student can create StudentRequest & librarian can exercise either "Reject" or "Approve"
+            1. student creates a StudentRequest
+            5. librarian approves the request and creates the StudentAccount
+
+             
+    3 Unhappy Paths
+        - invalidStudentId: student submits a request with invalid studentId length
+        - invalidAge: student submits a request with age < 18
+        - invalidChanges: Student tries to revise with the same StudentInfo
+-}
+
+
+
+cancelRequest = script do
+    (testParties@TestParties{..}, testStudentInfos@TestStudentInfos{..}) <- setupStudentInfos
+
+    -- 1. Student submits a request
+    request <- submit student do
+        createCmd StudentRequest with
+            student
+            studentInfo = studentInfo3
+            librarian
+            note = "John Lake's request"
+
+    -- 2. Student cancels the request
+    submit student do
+        exerciseCmd request Cancel
+
+    return ()
+
+rejectRequest = script do
+    (testParties@TestParties{..}, testStudentInfos@TestStudentInfos{..}) <- setupStudentInfos
+
+    -- 1. Student submits a request
+    request <- submit student do
+        createCmd StudentRequest with
+            student
+            studentInfo = studentInfo2
+            librarian
+            note = "Louis Weiss' request"
+
+    -- 3. Librarian rejects the request with feedback
+    rejectedRequest <- submit librarian do
+        exerciseCmd request Reject with
+            feedback = "Revise email"
+
+    let
+        revisedStudenttInfo = StudentInfo with
+            studentR = student
+            name = "Louis Weiss"
+            email = "louisweiss@univ.org"
+            studentId = "STD121245"
+            requestDate = date 2024 Jun 29
+            age = 18   
+
+    -- 4. Student revises the request with new information
+    revisedRquest <- submit student do
+        exerciseCmd rejectedRequest Revise with
+            newStudentInfo = revisedStudenttInfo
+            comment = "Amended email address to louisweiss@univ.org"
+
+    return ()
+
+proposeAndCreateAccount = script do
+    (testParties@TestParties{..}, testStudentInfos@TestStudentInfos{..}) <- setupStudentInfos
+
+    -- 1. Student submits a request
+    request <- submit student do
+        createCmd StudentRequest with
+            student
+            studentInfo = studentInfo1
+            librarian
+            note = "Jane Smith's request"
+
+    -- 5. Librarian approves the request
+    account <- submit librarian do
+        exerciseCmd request Approve with
+            librarianNote = Some "Approved by librarian"
+
+    return ()
+
+invalidStudentId = script do
+    (testParties@TestParties{..}, testStudentInfos@TestStudentInfos{..}) <- setupStudentInfos
+
+    -- Student submits a request with invalid studentId length
+    let invalidStudentInfo = studentInfo1 with studentId = "SHORT"
+    request <- submitMustFail student do
+        createCmd StudentRequest with
+            student
+            studentInfo = invalidStudentInfo
+            librarian
+            note = "Invalid student ID length"
+
+    return ()
+
+invalidAge = script do
+    (testParties@TestParties{..}, testStudentInfos@TestStudentInfos{..}) <- setupStudentInfos
+
+    -- Student submits a request with age < 18
+    let invalidStudentInfo = studentInfo2 with age = 17
+    request <- submitMustFail student do
+        createCmd StudentRequest with
+            student
+            studentInfo = invalidStudentInfo
+            librarian
+            note = "Age below 18"
+
+    return ()
+
+invalidChanges = script do
+    (testParties@TestParties{..}, testStudentInfos@TestStudentInfos{..}) <- setupStudentInfos
+
+    -- Student submits a request
+    request <- submit student do
+        createCmd StudentRequest with
+            student
+            studentInfo = studentInfo3
+            librarian
+            note = "John Lake's request"
+
+    -- Student tries to revise with the same StudentInfo
+    submitMustFail student do
+        exerciseCmd request Revise with
+            newStudentInfo = studentInfo3
+            comment = "Revised without changes"
+
+    return ()
